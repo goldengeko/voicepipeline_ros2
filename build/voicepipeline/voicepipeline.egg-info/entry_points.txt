@@ -1,6 +1,0 @@
-[console_scripts]
-commander = voicepipeline.commander:main
-commander_gpt = voicepipeline.commander_gpt:main
-moveit_motion = voicepipeline.moveit_motion:main
-spot_commander = voicepipeline.spot_commander:main
-transcriber = voicepipeline.transcriber:main

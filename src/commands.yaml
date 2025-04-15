@@ -1,0 +1,76 @@
+commands:
+  stop:
+    - stop
+    - halt
+    - cease
+    - pause
+    - standby
+  follow:
+    - follow
+    - come here
+    - come
+    - come over
+    - come closer
+    - continue
+    - go straight
+    - move forward
+    - advance
+    - proceed
+    - forward
+    - straight
+  turnleft:
+    - turn left
+    - left
+    - go left
+    - move left
+  turnright:
+    - turn right
+    - right
+    - go right
+    - move right
+  backup:
+    - back up
+    - reverse
+    - go back
+    - move back
+    - retreat
+    - backward
+  speedup:
+    - speed up
+    - faster
+    - accelerate
+    - increase speed
+  slowdown:
+    - slow down
+    - slower
+    - decelerate
+    - reduce speed
+  standup:
+    - stand up
+    - stand
+    - upright
+    - stand tall
+  sitdown:
+    - sit down
+    - sit
+    - sit tight
+    - sit still
+  rollover:
+    - roll over
+    - rollover
+    - roll
+    - flip
+    - belly up
+  selfright:
+    - self-right
+    - right self
+    - self upright
+    - upright self
+    - self right
+  pushups:
+    - pushups
+    - push ups
+    - push-up
+    - push up
+    - exercise
+    - workout

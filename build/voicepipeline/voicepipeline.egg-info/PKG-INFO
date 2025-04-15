@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: voicepipeline
-Version: 0.0.0
-Summary: TODO: Package description
-Maintainer: Ninad Kulkarni
-Maintainer-email: ninad.kulkarni@alumni.fh-aachen.de
-License: Apache-2.0
-Requires-Dist: setuptools
