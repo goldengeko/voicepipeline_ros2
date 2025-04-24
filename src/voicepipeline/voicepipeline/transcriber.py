@@ -12,7 +12,7 @@ from scipy.io.wavfile import write
 import os
 
 # Whisper settings
-MODEL = 'tiny'          # Model size: tiny, base, small, medium, large
+MODEL = 'base'          # Model size: tiny, base, small, medium, large
 ENGLISH = True            # Use English-only model
 SAMPLE_RATE = 44100       # Audio recording frequency
 BLOCK_SIZE = 30           # Block size in milliseconds

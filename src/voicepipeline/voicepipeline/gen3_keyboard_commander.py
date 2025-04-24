@@ -3,7 +3,6 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from std_msgs.msg import String
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 from moveit_msgs.srv import GetPositionIK
@@ -13,10 +12,11 @@ from control_msgs.action import FollowJointTrajectory
 from tf2_ros import TransformListener, Buffer
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
 from tf_transformations import quaternion_multiply, quaternion_from_euler
+from pynput import keyboard
 
-class Commander(Node):
+class KeyboardCommander(Node):
     def __init__(self):
-        super().__init__('kinova_commander')
+        super().__init__('kinova_keyboard_commander')
 
         # Declare ROS parameters
         self.declare_parameter('linear_increment', 0.02)
@@ -39,7 +39,6 @@ class Commander(Node):
 
         # Subscribers
         self.joint_state_subscriber = self.create_subscription(JointState, '/joint_states', self.joint_state_callback, 10)
-        self.transcription_subscriber = self.create_subscription(String, '/transcription', self.transcript_callback, 10)
 
         # Wait for services and joint state
         while not self.cli.wait_for_service(timeout_sec=1.0):
@@ -55,19 +54,13 @@ class Commander(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Timers
-        self.tf_timer = self.create_timer(1.0, self.lookup_transform)  # Reduced frequency
+        self.tf_timer = self.create_timer(1.0, self.lookup_transform)
         self.timeout_timer = self.create_timer(self.timeout_duration, self.stop_on_timeout)
 
-        # Command dictionaries
-        self.move_up = ['move up', 'go up', 'up']
-        self.move_down = ['move down', 'go down', 'down']
-        self.move_left = ['move left', 'go left', 'left']
-        self.move_right = ['move right', 'go right', 'right']
-        self.look_up = ['look up']
-        self.look_down = ['look down']
-        self.look_left = ['look left']
-        self.look_right = ['look right']
-        self.stop = ['stop', 'halt', 'cease', 'pause', 'standby']
+        # Initialize pynput keyboard listener
+        self.listener = keyboard.Listener(on_press=self.on_key_press)
+        self.listener.start()
+        self.get_logger().info("Keyboard listener started. Use arrow keys, i/j/k/l, s, +/-.")
 
     def lookup_transform(self):
         try:
@@ -84,7 +77,6 @@ class Commander(Node):
             #     f"rz: {rotation.z:.3f}\n"
             #     f"rw: {rotation.w:.3f}"
             # )
-            # Update current pose
             self.current_pose = PoseStamped()
             self.current_pose.header.frame_id = 'base_link'
             self.current_pose.pose.position.x = translation.x
@@ -98,21 +90,21 @@ class Commander(Node):
             self.get_logger().warn(f"Failed to get end effector pose: {e}")
 
     def joint_state_callback(self, msg):
+        #self.get_logger().info(f"Received joint names: {msg.name}")
         expected_joint_names = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
         filtered_positions = [None] * len(expected_joint_names)
-
         for i, joint in enumerate(expected_joint_names):
             if joint in msg.name:
                 index = msg.name.index(joint)
                 filtered_positions[i] = msg.position[index]
-
         if None in filtered_positions:
-            #self.get_logger().warn("Incomplete joint state received. Waiting for all joints.")
+            missing_joints = [joint for i, joint in enumerate(expected_joint_names) if filtered_positions[i] is None]
+            #self.get_logger().warn(f"Incomplete joint state received. Missing joints: {missing_joints}")
             return
-
         self.filtered_joint_state = JointState()
         self.filtered_joint_state.name = expected_joint_names
         self.filtered_joint_state.position = filtered_positions
+        #self.get_logger().info("Valid joint state received")
 
     def send_ik_request(self, target_pose):
         if not self.filtered_joint_state:
@@ -155,60 +147,32 @@ class Commander(Node):
         if not joint_state:
             self.get_logger().warn("No valid joint state for trajectory")
             return
-
         expected_joint_names = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
         filtered_positions = [
             joint_state.position[joint_state.name.index(joint)]
             for joint in expected_joint_names if joint in joint_state.name
         ]
-
         trajectory = JointTrajectory()
         trajectory.joint_names = expected_joint_names
         point = JointTrajectoryPoint()
         point.positions = filtered_positions
         point.velocities = [0.0] * len(filtered_positions)
         point.time_from_start.sec = 3
-
         trajectory.points.append(point)
         goal = FollowJointTrajectory.Goal()
         goal.trajectory = trajectory
-
         self.get_logger().info("Sending trajectory to action server")
         self.is_moving = True
         self.goal_reached = False
-
         goal_handle_future = self.action_client.send_goal_async(goal)
-
-        def goal_handle_callback(fut):
-            try:
-                goal_handle = fut.result()
-                if not goal_handle.accepted:
-                    self.get_logger().warn("Trajectory goal rejected")
-                    self.is_moving = False
-                    return
-
-                self.get_logger().info("Trajectory goal accepted")
-                result_future = goal_handle.get_result_async()
-
-                def result_callback(result_fut):
-                    try:
-                        result = result_fut.result()
-                        if result.result.error_code == 0:
-                            self.get_logger().info("Trajectory executed successfully")
-                            self.goal_reached = True
-                        else:
-                            self.get_logger().warn("Trajectory execution failed")
-                    except Exception as e:
-                        self.get_logger().error(f"Failed to process trajectory result: {e}")
-                    finally:
-                        self.is_moving = False
-
-                result_future.add_done_callback(result_callback)
-            except Exception as e:
-                self.get_logger().error(f"Failed to send trajectory goal: {e}")
-                self.is_moving = False
-
-        goal_handle_future.add_done_callback(goal_handle_callback)
+        rclpy.spin_until_future_complete(self, goal_handle_future)
+        if goal_handle_future.result():
+            goal_handle = goal_handle_future.result()
+            # result + self.get_logger().info("Trajectory executed successfully")
+            self.goal_reached = True
+        else:
+            self.get_logger().warn("Trajectory execution failed")
+        self.is_moving = False
 
     def move_up_cmd(self):
         if not self.current_pose:
@@ -242,7 +206,7 @@ class Commander(Node):
             return
         self.get_logger().info("Moving left")
         target_pose = self.current_pose
-        target_pose.pose.position.y -= self.linear_increment
+        target_pose.pose.position.y += self.linear_increment
         joint_state = self.send_ik_request(target_pose)
         if joint_state:
             self.send_trajectory(joint_state)
@@ -255,7 +219,7 @@ class Commander(Node):
             return
         self.get_logger().info("Moving right")
         target_pose = self.current_pose
-        target_pose.pose.position.y += self.linear_increment
+        target_pose.pose.position.y -= self.linear_increment
         joint_state = self.send_ik_request(target_pose)
         if joint_state:
             self.send_trajectory(joint_state)
@@ -361,62 +325,50 @@ class Commander(Node):
         self.timeout_timer.cancel()
         self.timeout_timer = self.create_timer(self.timeout_duration, self.stop_on_timeout)
 
-    def transcript_callback(self, msg):
-        transcription = msg.data.lower().strip()
-        if not transcription:
-            self.get_logger().info("Ignoring empty transcription")
-            return
-
-        command_phrases = [
-            phrase.strip().rstrip('.').rstrip(',').rstrip('!').rstrip('?')
-            for phrase in transcription.split(',')
-        ]
-
-        for phrase in command_phrases:
-            if phrase in self.move_up:
-                self.move_up_cmd()
-                break
-            elif phrase in self.move_down:
-                self.move_down_cmd()
-                break
-            elif phrase in self.move_left:
-                self.move_left_cmd()
-                break
-            elif phrase in self.move_right:
-                self.move_right_cmd()
-                break
-            elif phrase in self.look_up:
-                self.look_up_cmd()
-                break
-            elif phrase in self.look_down:
-                self.look_down_cmd()
-                break
-            elif phrase in self.look_left:
-                self.look_left_cmd()
-                break
-            elif phrase in self.look_right:
-                self.look_right_cmd()
-                break
-            elif phrase in self.stop:
-                self.stop_movement()
-                break
-            elif phrase in ['speed up']:
-                self.adjust_speed(0.05)
-                break
-            elif phrase in ['slow down']:
-                self.adjust_speed(-0.05)
-                break
+    def on_key_press(self, key):
+        if not self.goal_reached:
+            return  # Wait for current trajectory to complete
+        try:
+            # Handle special keys
+            if hasattr(key, 'name'):
+                key_str = key.name
             else:
-                self.get_logger().info(f"Unknown command: '{phrase}'")
-                self.stop_movement()
+                key_str = str(key.char)
+            # Map keys to commands
+            key_map = {
+                'up': self.move_up_cmd,
+                'down': self.move_down_cmd,
+                'left': self.move_left_cmd,
+                'right': self.move_right_cmd,
+                'i': self.look_up_cmd,
+                'k': self.look_down_cmd,
+                'j': self.look_left_cmd,
+                'l': self.look_right_cmd,
+                's': self.stop_movement,
+                'plus': lambda: self.adjust_speed(0.05),
+                'minus': lambda: self.adjust_speed(-0.05),
+            }
+            if key_str in key_map:
+                key_map[key_str]()
+                self.get_logger().info(f"Processed key: {key_str}")
+            else:
+                self.get_logger().info(f"Ignored key: {key_str}")
+        except AttributeError:
+            pass
+
+    def destroy_node(self):
+        self.listener.stop()
+        super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
-    commander = Commander()
+    commander = KeyboardCommander()
     try:
         rclpy.spin(commander)
     except KeyboardInterrupt:
         commander.get_logger().info('Keyboard interrupt, shutting down...')
+    except Exception as e:
+        commander.get_logger().error(f"Unexpected error: {e}")
     finally:
         commander.destroy_node()
         rclpy.shutdown()
